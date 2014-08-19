@@ -29,7 +29,6 @@
 // OVR
 #define OVR_OS_WIN32
 #include <OVR.h>
-#include <OVRVersion.h>
 #include <OVR_CAPI.h>
 #include <OVR_CAPI_GL.h>
 
@@ -83,7 +82,7 @@ int main(int argc, char *argv[])
 	err = load_textures();
 	if ( err != 0 )
 		exit( 40 + err );
-
+	
 	if (mode != MODE_DEBUG){
 		// Inits the frame buffer, usefull for rendering the scene in a texture to send it to Oculus
 		err = init_framebuffers();
@@ -105,23 +104,10 @@ int main(int argc, char *argv[])
 
 	// ---- View
 	glm::mat4 view;
-	view = glm::lookAt(
-		glm::vec3(1.2f, 1.2f, 1.2f),
-		glm::vec3(0.0f, 0.0f, 0.0f),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
-	GLint uniView = glGetUniformLocation(shaderProgram, "view");
-	glUniformMatrix4fv(uniView, 1, GL_FALSE, glm::value_ptr(view));
 
 	// ---- Projection
 	glm::mat4 proj;
-	if ( mode == MODE_DEBUG )
-		proj = glm::perspective(45.0f, 1280.0f / 720.0f, 1.0f, 10.0f);
-	else
-		proj = glm::perspective(45.0f, 640.0f / 720.0f, 1.0f, 10.0f);
-
-	GLint uniProj = glGetUniformLocation(shaderProgram, "proj");
-	glUniformMatrix4fv(uniProj, 1, GL_FALSE, glm::value_ptr(proj));
+	
 	
 	
 
@@ -135,14 +121,15 @@ int main(int argc, char *argv[])
 		glGenBuffers(1, &passthroughOB);
 		glBindBuffer(GL_ARRAY_BUFFER, passthroughOB);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(passthroughScreen), passthroughScreen, GL_STATIC_DRAW);
-
+		
 		// Binding the fragment Shader output to the current buffer
 		glBindFragDataLocation(passthroughShadersProgram, 0, "passthroughColor");
+		errorCode = glGetError();
 
 		// Link and Use Program
 		glLinkProgram(passthroughShadersProgram);
 		glUseProgram(passthroughShadersProgram);
-
+		
 		// Store the attributes for the shaders
 		
 		glGenVertexArrays(1, &passthroughVAO);
@@ -161,6 +148,10 @@ int main(int argc, char *argv[])
 		glUniform1i(glGetUniformLocation(passthroughShadersProgram, "renderedTex"), 0);
 	}
 
+	
+	
+	
+
 
 
 	// Event Loop
@@ -176,38 +167,65 @@ int main(int argc, char *argv[])
 			else if (windowEvent.type == SDL_KEYUP && windowEvent.key.keysym.sym == SDLK_ESCAPE) break;
 
 		}
+
+
+
+		// Enabling ressources to draw the cube
+		// Before entering the rendering loop
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, textures[0]);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, textures[1]);
+
+
 		
+		// ---- View
+		view = glm::lookAt(
+			glm::vec3(5.0f, 5.0f, 5.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
 
+		GLint uniView = glGetUniformLocation(shaderProgram, "view");
+		glUniformMatrix4fv(uniView, 1, GL_FALSE, glm::value_ptr(view));
+		
+		// ---- Projection
+		if ( mode == MODE_DEBUG ){
+			proj = glm::perspective(45.0f, 1280.0f / 720.0f, 1.0f, 10.0f);
+		}else{
+			proj = glm::perspective(45.0f, 640.0f / 720.0f, 1.0f, 10.0f);
+		}
+		GLint uniProj = glGetUniformLocation(shaderProgram, "proj");
+		glUniformMatrix4fv(uniProj, 1, GL_FALSE, glm::value_ptr(proj));
+		
+		//Turn around Z
+		trans = glm::rotate(
+			trans,
+			0.7f,
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+		glUniformMatrix4fv(uniTrans, 1, GL_FALSE, glm::value_ptr(trans));
 
-
+		
 		if ( mode == MODE_OCULUS || mode == MODE_OCULUS_DEBUG ){
 
-			ovrFrameTiming hdmFrameTiming = ovrHmd_BeginFrame(hmd, 0);
+			hdmFrameTiming = ovrHmd_BeginFrame(hmd, 0);
+			
 
-			glBindVertexArray(vertexArrayObject);
-			glUseProgram(shaderProgram);
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, textures[0]);
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, textures[1]);
+			
 
+			glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			
 			for (int eyeIndex = 0; eyeIndex < ovrEye_Count; eyeIndex++){
 
-				ovrEyeType eye = hmdDesc.EyeRenderOrder[eyeIndex];
-				ovrPosef eyePose = ovrHmd_BeginEyeRender(hmd, eye);
+				
+	
+				ovrEyeType eye = hmd->EyeRenderOrder[eyeIndex];
+				headPose[eye] = ovrHmd_GetEyePose(hmd, eye);
 
-				// Clear the screen and the depth buffer (as it is filled with 0 initially, 
-				// nothing will be draw (0 = on top);
-				glClearColor(0.0f, 0.0f, 0.3f, 1.0f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_FRAMEBUFFER);
 
-				// Drawing in the FrameBuffer
-				glBindBuffer(GL_FRAMEBUFFER, frameBuffer);
-				glBindRenderbuffer(GL_RENDERBUFFER, rboDepthStencil);
-				glEnable(GL_DEPTH_TEST);
-				
-				
-				
 				if (eye == ovrEye_Right){
 					glScissor(renderTargetSize.w / 2, 0, renderTargetSize.w / 2, renderTargetSize.h);
 					glViewport(renderTargetSize.w / 2, 0, renderTargetSize.w / 2, renderTargetSize.h);
@@ -215,55 +233,42 @@ int main(int argc, char *argv[])
 					glScissor(0, 0, renderTargetSize.w / 2, renderTargetSize.h);
 					glViewport(0, 0, renderTargetSize.w / 2, renderTargetSize.h);
 				}
-
+				
 				if (eye == ovrEye_Right)
 					glClearColor(0.0f, 0.3f, 0.0f, 1.0f);
 				else
 					glClearColor(0.3f, 0.0f, 0.0f, 1.0f);
 
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-
-
-				//Turn around Z
-				trans = glm::rotate(
-					trans,
-					0.7f,
-					glm::vec3(0.0f, 0.0f, 1.0f)
-				);
-				glUniformMatrix4fv(uniTrans, 1, GL_FALSE, glm::value_ptr(trans));
-				
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+				 
 				// Drawing
 				glDrawArrays(GL_TRIANGLES, 0, 36);
 
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				glBindRenderbuffer(GL_RENDERBUFFER, 0);
-				glDisable(GL_DEPTH_TEST);
-
-
-				ovrHmd_EndEyeRender(hmd, eye, eyePose, &EyeTexture[eye].Texture);
-		
 			}
-			
-		
-			ovrHmd_EndFrame(hmd);
 
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glBindRenderbuffer(GL_RENDERBUFFER, 0);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-			glUseProgram(0);
+			if (mode == MODE_OCULUS ){
+				
+				glScissor(0, 0, renderTargetSize.w, renderTargetSize.h);
+				glViewport(0, 0, renderTargetSize.w, renderTargetSize.h);
 
-			if ( mode == MODE_OCULUS_DEBUG ){
+				ovrHmd_EndFrame(hmd, headPose, eyeTex);
+				Sleep(1);
+			}else if ( mode == MODE_OCULUS_DEBUG ){
+
+				glBindBuffer(GL_FRAMEBUFFER, 0);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+				glBindBuffer(GL_ARRAY_BUFFER, 0);
+				glUseProgram(0);
+
 				glBindFramebuffer(GL_FRAMEBUFFER, 0);
 				glBindVertexArray(passthroughVAO);
 				glDisable(GL_DEPTH_TEST);
 				glUseProgram(passthroughShadersProgram);
 
 				glActiveTexture(GL_TEXTURE0);
-				glBindTexture(GL_TEXTURE_2D, renderedTex);
 
 				glDrawArrays(GL_TRIANGLES, 0, 6);
+
 			}
 		
 		}else if (mode == MODE_DEBUG){
@@ -274,20 +279,13 @@ int main(int argc, char *argv[])
 			glClearColor(0.0f, 0.3f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			//Turn around Z
-			trans = glm::rotate(
-				trans,
-				1.0f,
-				glm::vec3(0.0f, 0.0f, 1.0f)
-			);
-			glUniformMatrix4fv(uniTrans, 1, GL_FALSE, glm::value_ptr(trans));
 
 			// Drawing
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 
 		}
 
-
+		
 		if ( mode != MODE_OCULUS )
 			SDL_GL_SwapWindow(window);
 
@@ -324,14 +322,12 @@ int init_ovr(){
 
 	// Create the software device and connect the physical device
 	hmd = ovrHmd_Create(0);
-	if (!hmd) hmd = ovrHmd_CreateDebug(ovrHmd_DK1);
-	if (hmd)
-		ovrHmd_GetDesc( hmd, &hmdDesc );
-	else
+	//if (!hmd) hmd = ovrHmd_CreateDebug(ovrHmd_DK1);
+	if (!hmd)
 		return 1;
 
 	// Starts the sensor input with check required Capabilities
-	 if ( !ovrHmd_StartSensor(hmd, hmdDesc.SensorCaps, ovrSensorCap_Orientation) )
+	 if ( !ovrHmd_ConfigureTracking(hmd, hmd->TrackingCaps, hmd->TrackingCaps) )
 		 return 2;
 
 	 if ( mode == MODE_DEBUG ){
@@ -341,14 +337,63 @@ int init_ovr(){
 		 renderTargetSize.h = 720;
 	 }else{
 		//Configuring the Texture size (bigger than screen for barreldistortion)
-		recommendedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left, hmdDesc.DefaultEyeFov[0], 1.0f);
-		recommendedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right, hmdDesc.DefaultEyeFov[1], 1.0f);
+		recommendedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left, hmd->DefaultEyeFov[0], 1.0f);
+		recommendedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right, hmd->DefaultEyeFov[1], 1.0f);
 
 		renderTargetSize.w = recommendedTex0Size.w + recommendedTex1Size.w;
 		renderTargetSize.h = std::max( recommendedTex0Size.h, recommendedTex1Size.h );
 	 }
 	
 	 return 0;
+}
+
+
+/**
+ * ERRORODE 0 => OK
+ * ERRORCODE 1 => Unable to configure OVR Render
+ */
+int init_render_ovr(){
+
+	// Configure and Init rendering using the OVR render Core.
+	// Input => rendered 3D texture (Two passes: 1 Left, 1 Right)
+	// Output auto, on defined window
+
+	// Configure rendering with OpenGL
+	ovrGLConfig cfg;
+	cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
+	cfg.OGL.Header.RTSize = OVR::Sizei( hmd->Resolution.w, hmd->Resolution.h );
+	cfg.OGL.Header.Multisample = 1;
+	cfg.OGL.Window = sdl_window_info.info.win.window;
+	cfg.OGL.DC = GetWindowDC(sdl_window_info.info.win.window);
+
+	ovrFovPort eyesFov[2] =  { hmd->DefaultEyeFov[0], hmd->DefaultEyeFov[1] };
+
+	if ( mode == MODE_OCULUS ){
+		if ( !ovrHmd_ConfigureRendering(hmd, &cfg.Config, hmd->DistortionCaps, eyesFov, eyesRenderDesc) )
+			return 1;
+		// Direct OVR SDK output to Oculus Display
+		ovrHmd_AttachToWindow(hmd, sdl_window_info.info.win.window, nullptr, nullptr);
+	}
+
+
+	EyeTexture[0].OGL.Header.API = ovrRenderAPI_OpenGL;
+	EyeTexture[0].OGL.Header.TextureSize = renderTargetSize;
+	EyeTexture[0].OGL.Header.RenderViewport.Size = recommendedTex0Size;
+	EyeTexture[0].OGL.Header.RenderViewport.Pos.x = 0;
+	EyeTexture[0].OGL.Header.RenderViewport.Pos.y = 0;
+	EyeTexture[0].OGL.TexId = renderedTex;
+
+	EyeTexture[1].OGL.Header.API = ovrRenderAPI_OpenGL;
+	EyeTexture[1].OGL.Header.TextureSize = renderTargetSize;
+	EyeTexture[1].OGL.Header.RenderViewport.Size = recommendedTex1Size;
+	EyeTexture[1].OGL.Header.RenderViewport.Pos.x = recommendedTex0Size.w;
+	EyeTexture[1].OGL.Header.RenderViewport.Pos.y = 0;
+	EyeTexture[1].OGL.TexId = renderedTex;
+
+	eyeTex[0] = EyeTexture[0].Texture;
+	eyeTex[1] = EyeTexture[1].Texture;
+
+	return 0;
 }
 
 
@@ -378,7 +423,7 @@ int init_SDL_GL(){
 	if (mode == MODE_DEBUG)
 		window = SDL_CreateWindow("OpenGL", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_OPENGL);
 	else if (mode == MODE_OCULUS)
-		window = SDL_CreateWindow("OpenGL", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, hmdDesc.Resolution.w, hmdDesc.Resolution.h, SDL_WINDOW_OPENGL);
+		window = SDL_CreateWindow("OpenGL", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, hmd->Resolution.w, hmd->Resolution.h, SDL_WINDOW_OPENGL);
 	else if (mode == MODE_OCULUS_DEBUG)
 		window = SDL_CreateWindow("OpenGL", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, renderTargetSize.w, renderTargetSize.h, SDL_WINDOW_OPENGL);
 
@@ -388,14 +433,14 @@ int init_SDL_GL(){
 
 	if (!SDL_GetWindowWMInfo( window, &sdl_window_info ))
 		return 4;
-
+	
 	// GLEW Init
 	glewExperimental = GL_TRUE;
 	if ( glewInit() != GLEW_OK )
 		return 3;
-
+	errorCode = glGetError();
 	std::cout << "OpenGL version " << glGetString(GL_VERSION) << std::endl;
-
+	
 	// Enable the depth Buffer to prevent overlaping
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_SCISSOR_TEST);
@@ -528,7 +573,6 @@ int load_vertex(){
 	// Vertexbuffer and Attributes for shaders
 	//------------------------------------------------------
 	// Création du vertex buffer
-	GLuint vertexBuffer;
 	glGenBuffers(1, &vertexBuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), &vertices, GL_STATIC_DRAW);
@@ -637,7 +681,10 @@ int init_framebuffers(){
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
 	
+
 	// Attaching the color buffer to the frame Buffer
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderedTex, 0);
 
@@ -659,49 +706,8 @@ int init_framebuffers(){
        if (l_Check!=GL_FRAMEBUFFER_COMPLETE)
        {
           printf("There is a problem with the FBO.\n");
-          //exit(199);
+          exit(199);
        }
-
-	return 0;
-}
-
-/**
- * ERRORODE 0 => OK
- * ERRORCODE 1 => Unable to configure OVR Render
- */
-int init_render_ovr(){
-
-	// Configure and Init rendering using the OVR render Core.
-	// Input => rendered 3D texture (Two passes: 1 Left, 1 Right)
-	// Output auto, on defined window
-
-	// Configure rendering with OpenGL
-	ovrGLConfig cfg;
-	cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
-	cfg.OGL.Header.RTSize = OVR::Sizei( hmdDesc.Resolution.w, hmdDesc.Resolution.h );
-	cfg.OGL.Header.Multisample = 0;
-	cfg.OGL.Window = sdl_window_info.info.win.window;
-
-	ovrFovPort eyesFov[2] =  { hmdDesc.DefaultEyeFov[0], hmdDesc.DefaultEyeFov[1] };
-	
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-	if ( mode == MODE_OCULUS ){
-		if ( !ovrHmd_ConfigureRendering(hmd, &cfg.Config, 0, eyesFov, eyesRenderDesc) )
-			return 1;
-	}
-
-	std::cout << "distorted viewport w: " << eyesRenderDesc[0].DistortedViewport.Size.w << std::endl;
-
-	EyeTexture[0].OGL.Header.API = ovrRenderAPI_OpenGL;
-	EyeTexture[0].OGL.Header.TextureSize = renderTargetSize;
-	EyeTexture[0].OGL.Header.RenderViewport.Size = recommendedTex0Size;
-	EyeTexture[0].OGL.Header.RenderViewport.Pos.x = 0;
-	EyeTexture[0].OGL.Header.RenderViewport.Pos.y = 0;
-	EyeTexture[0].OGL.TexId = renderedTex;
-
-	EyeTexture[1] = EyeTexture[0];
-	EyeTexture[1].OGL.Header.RenderViewport.Pos.x = recommendedTex0Size.w / 2;
 
 	return 0;
 }
